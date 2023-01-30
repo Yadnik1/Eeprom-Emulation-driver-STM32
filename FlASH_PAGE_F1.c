@@ -1,42 +1,31 @@
-
-/**
-  ***************************************************************************************************************
-  ***************************************************************************************************************
-  ***************************************************************************************************************
-  File:	      FLASH_PAGE_F1.c
-  Modifier:   ControllersTech.com
-  Updated:    27th MAY 2021
-  ***************************************************************************************************************
-  Copyright (C) 2017 ControllersTech.com
-  This is a free software under the GNU license, you can redistribute it and/or modify it under the terms
-  of the GNU General Public License version 3 as published by the Free Software Foundation.
-  This software library is shared with public for educational purposes, without WARRANTY and Author is not liable for any damages caused directly
-  or indirectly by this software, read more about this on the GNU General Public License.
-  ***************************************************************************************************************
-*/
 #include "FLASH_PAGE_F1.h"
 #include "string.h"
 #include "stdio.h"
 
+#define FLASH_USER_START_ADDR  (FLASH_BASE + (4 * FLASH_PAGE_SIZE))  /* Start @ of user Flash area */
+#define FLASH_USER_END_ADDR   (FLASH_BASE + FLASH_SIZE - 1)   /* End @ of user Flash area */
 
-/* STM32F103 have 128 PAGES (Page 0 to Page 127) of 1 KB each. This makes up 128 KB Flash Memory
- * Some STM32F103C8 have 64 KB FLASH Memory, so I guess they have Page 0 to Page 63 only.
- */
+//#define DATA_64                 ((uint64_t)0x1234567812345678)
 
-/* FLASH_PAGE_SIZE should be able to get the size of the Page according to the controller */
-static uint32_t GetPage(uint32_t Address)
+uint32_t FirstPage=0, NbOfPages=0;
+uint32_t Address=0, PageError=0;
+
+__IO uint32_t data32=0 , MemoryProgramStatus=0;
+
+
+static uint32_t GetPage(uint32_t Address);
+
+
+/**
+  * @brief  Gets the page of a given address
+  * @param  Addr: Address of the FLASH Memory
+  * @retval The page of a given address
+  */
+
+static uint32_t GetPage(uint32_t Addr)
 {
-  for (int indx=0; indx<64; indx++)
-  {
-	  if((Address < (0x08000000 + ((0x400U)   *(indx+1))) ) && (Address >= (0x08000000 +  (0x400U) *indx)))
-	  {
-		  return (0x08000000 +  (0x400U) *indx);
-	  }
-  }
-
-  return 0;
+  return (Addr - FLASH_BASE) / FLASH_PAGE_SIZE;;
 }
-
 
 uint8_t bytes_temp[4];
 
@@ -71,40 +60,37 @@ float Bytes2float(uint8_t * ftoa_bytes_temp)
    return float_variable;
 }
 
-uint32_t Flash_Write_Data (uint32_t StartPageAddress, uint32_t *Data, uint16_t numberofwords)
+uint32_t Flash_Write_Data( uint32_t Address , uint32_t *Data, uint16_t numberofwords)
 {
-
+	Address = FLASH_USER_START_ADDR;
 	static FLASH_EraseInitTypeDef EraseInitStruct;
-	uint64_t PAGEError;
+	uint32_t PAGEError;
 	int sofar=0;
 
-	  /* Unlock the Flash to enable the flash control register access *************/
-	   HAL_FLASH_Unlock();
+	HAL_FLASH_Unlock();
 
-	   /* Erase the user Flash area*/
+  /* Get the 1st page to erase */
+  FirstPage = GetPage(FLASH_USER_START_ADDR);
 
-	  uint32_t StartPage = GetPage(StartPageAddress);
-	  uint32_t EndPageAdress = StartPageAddress + numberofwords*8;
-	  uint32_t EndPage = GetPage(EndPageAdress);
+  /* Get the number of pages to erase from 1st page */
+  NbOfPages = GetPage(FLASH_USER_END_ADDR) - FirstPage + 1;
 
-	   /* Fill EraseInit structure*/
-	   EraseInitStruct.TypeErase = FLASH_TYPEERASE_PAGES;
-	   EraseInitStruct.Page = StartPage;
-	   EraseInitStruct.Page = ((EndPage - StartPage)/(0x1600U)) +1;
+  /* Fill EraseInit structure*/
+  EraseInitStruct.TypeErase   = FLASH_TYPEERASE_PAGES;
+  EraseInitStruct.Page        = FirstPage + numberofwords*4;
+  EraseInitStruct.NbPages     = NbOfPages;
 
-	   if (HAL_FLASHEx_Erase(&EraseInitStruct, &PAGEError) != HAL_OK)
+ if (HAL_FLASHEx_Erase(&EraseInitStruct, &PAGEError) != HAL_OK)
 	   {
 	     /*Error occurred while page erase.*/
 		  return HAL_FLASH_GetError ();
 	   }
 
-	   /* Program the user Flash area word by word*/
-
-	   while (sofar<numberofwords)
+while (sofar<numberofwords)
 	   {
-	     if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD , StartPageAddress, Data[sofar]) == HAL_OK)
+	     if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, Address, Data[sofar]) == HAL_OK)
 	     {
-	    	 StartPageAddress += 8;  // use StartPageAddress += 2 for half word and 8 for double word
+	    	 Address += 8;  // use StartPageAddress += 2 for half word and 8 for double word
 	    	 sofar++;
 	     }
 	     else
@@ -112,31 +98,30 @@ uint32_t Flash_Write_Data (uint32_t StartPageAddress, uint32_t *Data, uint16_t n
 	       /* Error occurred while writing data in Flash memory*/
 	    	 return HAL_FLASH_GetError ();
 	     }
-	   }
 
-	   /* Lock the Flash to disable the flash control register access (recommended
+	}
+
+	  /* Lock the Flash to disable the flash control register access (recommended
 	      to protect the FLASH memory against possible unwanted operation) *********/
 	   HAL_FLASH_Lock();
 
 	   return 0;
 }
 
-
-void Flash_Read_Data (uint32_t StartPageAddress, uint32_t *RxBuf, uint16_t numberofwords)
+void Flash_Read_Data( uint32_t Address, uint32_t *RxBuf, uint16_t numberofwords)
 {
 	while (1)
 	{
 
-		*RxBuf = *(__IO uint32_t *)StartPageAddress;
-		StartPageAddress += 8;
+		*RxBuf = *(__IO uint32_t *)Address;
+		Address += 4;
 		RxBuf++;
 		if (!(numberofwords--)) break;
 	}
 }
 void Convert_To_Str (uint32_t *Data, char *Buf)
 {
-	int numberofbytes = ((strlen((char *)Data)/4) + ((strlen((char *)Data)%4) !=0))*4;
-//
+	int numberofbytes = ((strlen((char *)Data)/4) + ((strlen((char *)Data) % 4) != 0)) *4;
 
 	for (int i=0; i<numberofbytes; i++)
 	{
