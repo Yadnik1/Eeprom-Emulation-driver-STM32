@@ -45,7 +45,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint32_t Flash_Address=0x0800F800;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -58,8 +58,7 @@ static void MX_GPIO_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-char *data = "hello FLASH from ControllerTech\
-			  This is a test to see how many words can we work with";
+char *data = "Hello World";
 /* USER CODE END 0 */
 
 
